@@ -1,7 +1,7 @@
-pub fn gen_rand_packed<const N: usize>() -> [u64; N] {
-    let mut rand: u64 = 0x9E3779B97F4A7C15;
+pub fn gen_rand_packed<const N: usize>(seed: u64) -> [u64; N] {
+    let mut rand: u64 = 0x9E3779B97F4A7C15 ^ seed;
     std::array::from_fn(|_| {
-        rand = rand.wrapping_mul(0xBF58476D1CE4E5B9);
+        mix_bits(&mut rand);
         rand
     })
 }

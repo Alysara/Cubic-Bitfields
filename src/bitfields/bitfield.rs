@@ -1,3 +1,4 @@
+use std::iter::zip;
 use std::mem::transmute;
 use std::ops::*;
 use std::simd::prelude::*;
@@ -5,6 +6,26 @@ use std::simd::prelude::*;
 use crate::loader::*;
 use crate::logger::*;
 use crate::transposes::*;
+
+const EVEN_U8_SWIZ: [usize; 32] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    50, 52, 54, 56, 58, 60, 62,
+];
+
+const ODD_U8_SWIZ: [usize; 32] = [
+    1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49,
+    51, 53, 55, 57, 59, 61, 63,
+];
+
+const EVEN_U16_SWIZ: [usize; 32] = [
+    0, 1, 4, 5, 8, 9, 12, 13, 16, 17, 20, 21, 24, 25, 28, 29, 32, 33, 36, 37, 40, 41, 44, 45, 48,
+    49, 52, 53, 56, 57, 60, 61,
+];
+
+const ODD_U16_SWIZ: [usize; 32] = [
+    2, 3, 6, 7, 10, 11, 14, 15, 18, 19, 22, 23, 26, 27, 30, 31, 34, 35, 38, 39, 42, 43, 46, 47, 50,
+    51, 54, 55, 58, 59, 62, 63,
+];
 
 #[repr(align(64))]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -477,6 +498,137 @@ impl Bitfield {
     ) {
         let iter = (0..8192).skip(y_slice * 8).step_by(256);
         self.load_packed_u16_inner::<SET, CMP>(data, iter, match_val);
+    }
+
+    #[inline(always)]
+    pub fn store_into_packed_u1(&self, array: &mut [u64; 512], index: bool) {
+        let data_u64: &[u64; 512] = unsafe { transmute(&self.data) };
+        if index {
+            zip(array.iter_mut(), data_u64.iter()).for_each(|(array, bits)| *array |= *bits);
+        } else {
+            zip(array.iter_mut(), data_u64.iter()).for_each(|(array, bits)| *array &= !*bits);
+        }
+    }
+
+    #[inline(always)]
+    pub fn store_into_packed_u2(&self, array: &mut [u64; 1024], index: u8) {
+        assert!(index < 4, "Index is invalid!");
+
+        let index = index | (index << 2);
+        let index = index | (index << 4);
+        let index = u8x32::splat(index);
+
+        let zero = u8x32::splat(0);
+        let izero = i8x32::splat(0);
+        let m1 = u8x32::splat(0x03);
+        let m2 = u8x32::splat(0x0C);
+        let m3 = u8x32::splat(0x30);
+        let m4 = u8x32::splat(0xC0);
+
+        let array_u8: &mut [u8; 8192] = unsafe { std::mem::transmute(array) };
+        for i in (0..8192).step_by(32) {
+            let bit_index = i >> 3;
+
+            let a1 = Mask::<i8, 32>::from_bitmask(self.data[bit_index] as u64).to_simd();
+            let a2 = Mask::<i8, 32>::from_bitmask(self.data[bit_index + 1] as u64).to_simd();
+            let a3 = Mask::<i8, 32>::from_bitmask(self.data[bit_index + 2] as u64).to_simd();
+            let a4 = Mask::<i8, 32>::from_bitmask(self.data[bit_index + 3] as u64).to_simd();
+
+            let b1 = simd_swizzle!(a1, a2, EVEN_U16_SWIZ);
+            let b2 = simd_swizzle!(a1, a2, ODD_U16_SWIZ);
+            let b3 = simd_swizzle!(a3, a4, EVEN_U16_SWIZ);
+            let b4 = simd_swizzle!(a3, a4, ODD_U16_SWIZ);
+
+            let c1 = simd_swizzle!(b1, b3, EVEN_U8_SWIZ);
+            let c2 = simd_swizzle!(b1, b3, ODD_U8_SWIZ);
+            let c3 = simd_swizzle!(b2, b4, EVEN_U8_SWIZ);
+            let c4 = simd_swizzle!(b2, b4, ODD_U8_SWIZ);
+
+            let d1 = c1.simd_ne(izero);
+            let d2 = c2.simd_ne(izero);
+            let d3 = c3.simd_ne(izero);
+            let d4 = c4.simd_ne(izero);
+
+            let mask = d1.select(m1, zero)
+                | d2.select(m2, zero)
+                | d3.select(m3, zero)
+                | d4.select(m4, zero);
+
+            let cur = u8x32::from_slice(&array_u8[i..]) & !mask;
+            let bits = index & mask;
+            let new_bits = cur | bits;
+
+            new_bits.copy_to_slice(&mut array_u8[i..]);
+        }
+    }
+
+    #[inline(always)]
+    pub fn store_into_packed_u4(&self, array: &mut [u64; 2048], index: u8) {
+        assert!(index < 16, "Index is invalid!");
+
+        let index = index | (index << 4);
+        let index = u8x32::splat(index);
+
+        let zero = u8x32::splat(0);
+        let izero = i8x32::splat(0);
+        let m1 = u8x32::splat(0x0F);
+        let m2 = u8x32::splat(0xF0);
+
+        let array_u8: &mut [u8; 16384] = unsafe { std::mem::transmute(array) };
+        for i in (0..16384).step_by(32) {
+            let bit_index = i >> 4;
+            let a1 = Mask::<i8, 32>::from_bitmask(self.data[bit_index] as u64).to_simd();
+            let a2 = Mask::<i8, 32>::from_bitmask(self.data[bit_index + 1] as u64).to_simd();
+
+            let b1 = simd_swizzle!(a1, a2, EVEN_U8_SWIZ);
+            let b2 = simd_swizzle!(a1, a2, ODD_U8_SWIZ);
+            let c1 = b1.simd_ne(izero);
+            let c2 = b2.simd_ne(izero);
+
+            let mask = c1.select(m1, zero) | c2.select(m2, zero);
+
+            let cur = u8x32::from_slice(&array_u8[i..]) & !mask;
+            let bits = index & mask;
+            let new_bits = cur | bits;
+
+            new_bits.copy_to_slice(&mut array_u8[i..]);
+        }
+    }
+
+    #[inline(always)]
+    pub fn store_into_packed_u8(&self, array: &mut [u64; 4096], index: u8) {
+        let index = u8x32::splat(index);
+        let array_u8: &mut [u8; 32768] = unsafe { std::mem::transmute(array) };
+        for i in (0..32768).step_by(32) {
+            let bit_index = i >> 5;
+            let mask = Mask::<i8, 32>::from_bitmask(self.data[bit_index] as u64);
+            // let mask: u8x32 = unsafe { transmute(mask) };
+
+            let cur = u8x32::from_slice(&array_u8[i..]);
+            let new_bits = mask.select(index, cur);
+
+            new_bits.copy_to_slice(&mut array_u8[i..]);
+        }
+    }
+
+    #[inline(always)]
+    pub fn store_into_packed_u16(&self, array: &mut [u64; 8192], index: u16) {
+        let index = u16x16::splat(index);
+        let array_u16: &mut [u16; 32768] = unsafe { std::mem::transmute(array) };
+        for i in (0..32768).step_by(32) {
+            let bits = self.data[i >> 5] as u64;
+            let mask1 = Mask::<i16, 16>::from_bitmask(bits);
+            let mask2 = Mask::<i16, 16>::from_bitmask(bits >> 16);
+
+            let cur1 = u16x16::from_slice(&array_u16[i..]);
+            let cur2 = u16x16::from_slice(&array_u16[i + 16..]);
+
+            let new_bits1 = mask1.select(index, cur1);
+            let new_bits2 = mask2.select(index, cur2);
+
+            new_bits1.copy_to_slice(&mut array_u16[i..]);
+            new_bits2.copy_to_slice(&mut array_u16[i + 16..]);
+        }
     }
 
     pub fn to_array(self) -> [u32; 1024] {

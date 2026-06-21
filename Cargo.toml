@@ -19,3 +19,6 @@ harness = false
 [[bench]]
 name = "tracked"
 harness = false
+[[bench]]
+name = "store"
+harness = false

@@ -5,6 +5,7 @@ use cubic_bitfields::*;
 
 fn main() {
     let bitfield = Bitfield::new(1);
+
     // black_box(&bitfield);
     //
     // for z in 0..32 {
