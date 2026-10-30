@@ -16,6 +16,12 @@ fn transpose_bench(c: &mut Criterion) {
             black_box(bitfield);
         });
     });
+    group.bench_function("inner_transpose_simply_simd", |b| {
+        b.iter(|| {
+            bitfield.inner_transpose_simply_simd();
+            black_box(bitfield);
+        });
+    });
     group.bench_function("outer_transpose", |b| {
         b.iter(|| {
             bitfield.outer_transpose();

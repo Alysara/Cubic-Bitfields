@@ -1,4 +1,7 @@
+use std::arch::is_aarch64_feature_detected;
 use std::simd::{simd_swizzle, u32x4, u32x16};
+
+use simply_simd::{Arch, Simd};
 
 /// Transposes all 1024 elements as a 32x32 matrix.
 #[inline(always)]
@@ -77,6 +80,7 @@ pub fn outer_transpose_scalar(matrix: &mut [u32; 1024]) {
 // --- https://github.com/Pnoenix/fast-bit-matrix-transpose
 
 /// Transposes each chunk of 32 elements as a 32x32 bit matrix.
+#[inline(always)]
 pub fn inner_transpose_slice(slice: &mut [u32]) {
     // 16 bits
     let hi = u32x16::from_slice(&slice[..]);
@@ -133,6 +137,290 @@ pub fn inner_transpose_slice(slice: &mut [u32]) {
     let final_lo = simd_swizzle!(hi1, lo1, SFL);
     final_hi.copy_to_slice(&mut slice[..]);
     final_lo.copy_to_slice(&mut slice[16..]);
+}
+
+#[inline(always)]
+pub fn inner_transpose_slice_simply_simd<A: Arch>(slice: &mut [u32]) {
+    match A::SIMD_WIDTH {
+        // sse4.2 + Neon
+        16 => {
+            let a1 = Simd::<u32, A>::from_slice(&slice[0..4]);
+            let a2 = Simd::<u32, A>::from_slice(&slice[4..8]);
+            let a3 = Simd::<u32, A>::from_slice(&slice[8..12]);
+            let a4 = Simd::<u32, A>::from_slice(&slice[12..16]);
+            let a5 = Simd::<u32, A>::from_slice(&slice[16..20]);
+            let a6 = Simd::<u32, A>::from_slice(&slice[20..24]);
+            let a7 = Simd::<u32, A>::from_slice(&slice[24..28]);
+            let a8 = Simd::<u32, A>::from_slice(&slice[28..32]);
+
+            let b1 = a1.interleave_lower_8(a3);
+            let b2 = a2.interleave_lower_8(a4);
+            let b3 = a1.interleave_upper_8(a3);
+            let b4 = a2.interleave_upper_8(a4);
+            let b5 = a5.interleave_lower_8(a7);
+            let b6 = a6.interleave_lower_8(a8);
+            let b7 = a5.interleave_upper_8(a7);
+            let b8 = a6.interleave_upper_8(a8);
+
+            let c1 = b1.interleave_lower_16(b5);
+            let c2 = b2.interleave_lower_16(b6);
+            let c3 = b1.interleave_upper_16(b5);
+            let c4 = b2.interleave_upper_16(b6);
+            let c5 = b3.interleave_lower_16(b7);
+            let c6 = b4.interleave_lower_16(b8);
+            let c7 = b3.interleave_upper_16(b7);
+            let c8 = b4.interleave_upper_16(b8);
+
+            // Perform swaps
+            let mask4x4 = Simd::splat(0x0F0F_0F0F);
+            let mask2x2 = Simd::splat(0x3333_3333);
+            let mask1x1 = Simd::splat(0x5555_5555);
+
+            #[cfg(target_arch = "aarch64")]
+            {
+                // Use mask approach for Neon to use bit instructions.
+                // 4x4 Swap
+                let not_mask4x4 = !mask4x4;
+                let d1 = (c1 & mask4x4) | (c2.shift_left::<4>() & not_mask4x4);
+                let d2 = (c2 & not_mask4x4) | (c1.shift_right::<4>() & mask4x4);
+                let d3 = (c3 & mask4x4) | (c4.shift_left::<4>() & not_mask4x4);
+                let d4 = (c4 & not_mask4x4) | (c3.shift_right::<4>() & mask4x4);
+                let d5 = (c5 & mask4x4) | (c6.shift_left::<4>() & not_mask4x4);
+                let d6 = (c6 & not_mask4x4) | (c5.shift_right::<4>() & mask4x4);
+                let d7 = (c7 & mask4x4) | (c8.shift_left::<4>() & not_mask4x4);
+                let d8 = (c8 & not_mask4x4) | (c7.shift_right::<4>() & mask4x4);
+
+                // 2x2 Swap
+                let not_mask2x2 = !mask2x2;
+                let e1 = (d1 & mask2x2) | (d5.shift_left::<2>() & not_mask2x2);
+                let e5 = (d5 & not_mask2x2) | (d1.shift_right::<2>() & mask2x2);
+                let e2 = (d2 & mask2x2) | (d6.shift_left::<2>() & not_mask2x2);
+                let e6 = (d6 & not_mask2x2) | (d2.shift_right::<2>() & mask2x2);
+                let e3 = (d3 & mask2x2) | (d7.shift_left::<2>() & not_mask2x2);
+                let e7 = (d7 & not_mask2x2) | (d3.shift_right::<2>() & mask2x2);
+                let e4 = (d4 & mask2x2) | (d8.shift_left::<2>() & not_mask2x2);
+                let e8 = (d8 & not_mask2x2) | (d4.shift_right::<2>() & mask2x2);
+
+                // 1x1 Swap
+                let not_mask1x1 = !mask1x1;
+                let f1 = (e1 & mask1x1) | (e3.shift_left::<1>() & not_mask1x1);
+                let f3 = (e3 & not_mask1x1) | (e1.shift_right::<1>() & mask1x1);
+                let f2 = (e2 & mask1x1) | (e4.shift_left::<1>() & not_mask1x1);
+                let f4 = (e4 & not_mask1x1) | (e2.shift_right::<1>() & mask1x1);
+                let f5 = (e5 & mask1x1) | (e7.shift_left::<1>() & not_mask1x1);
+                let f7 = (e7 & not_mask1x1) | (e5.shift_right::<1>() & mask1x1);
+                let f6 = (e6 & mask1x1) | (e8.shift_left::<1>() & not_mask1x1);
+                let f8 = (e8 & not_mask1x1) | (e6.shift_right::<1>() & mask1x1);
+
+                // Use specialized st4 instruction for interleaved store.
+
+                use core::arch::aarch64::{uint32x4_t, uint32x4x4_t, vst4q_u32};
+                use core::mem::transmute_copy;
+
+                let p0 = f1.interleave_lower_32(f2);
+                let p1 = f3.interleave_lower_32(f4);
+                let p2 = f5.interleave_lower_32(f6);
+                let p3 = f7.interleave_lower_32(f8);
+                let q0 = f1.interleave_upper_32(f2);
+                let q1 = f3.interleave_upper_32(f4);
+                let q2 = f5.interleave_upper_32(f6);
+                let q3 = f7.interleave_upper_32(f8);
+
+                unsafe {
+                    let r = |v: Simd<u32, A>| -> uint32x4_t { transmute_copy(&v) };
+
+                    vst4q_u32(
+                        slice[0..16].as_mut_ptr(),
+                        uint32x4x4_t(r(p0), r(p1), r(p2), r(p3)),
+                    );
+                    vst4q_u32(
+                        slice[16..32].as_mut_ptr(),
+                        uint32x4x4_t(r(q0), r(q1), r(q2), r(q3)),
+                    );
+                }
+            }
+
+            #[cfg(not(target_arch = "aarch64"))]
+            {
+                // Otherwise use cheaper xor swap for sse4.2
+                let swap1 = (c1.shift_right::<4>() ^ c2) & mask4x4;
+                let swap2 = (c3.shift_right::<4>() ^ c4) & mask4x4;
+                let swap3 = (c5.shift_right::<4>() ^ c6) & mask4x4;
+                let swap4 = (c7.shift_right::<4>() ^ c8) & mask4x4;
+                let d1 = c1 ^ swap1.shift_left::<4>();
+                let d2 = c2 ^ swap1;
+                let d3 = c3 ^ swap2.shift_left::<4>();
+                let d4 = c4 ^ swap2;
+                let d5 = c5 ^ swap3.shift_left::<4>();
+                let d6 = c6 ^ swap3;
+                let d7 = c7 ^ swap4.shift_left::<4>();
+                let d8 = c8 ^ swap4;
+
+                // 2x2 Swap
+                let swap1 = (d1.shift_right::<2>() ^ d5) & mask2x2;
+                let swap2 = (d2.shift_right::<2>() ^ d6) & mask2x2;
+                let swap3 = (d3.shift_right::<2>() ^ d7) & mask2x2;
+                let swap4 = (d4.shift_right::<2>() ^ d8) & mask2x2;
+                let e1 = d1 ^ swap1.shift_left::<2>();
+                let e2 = d2 ^ swap2.shift_left::<2>();
+                let e3 = d3 ^ swap3.shift_left::<2>();
+                let e4 = d4 ^ swap4.shift_left::<2>();
+                let e5 = d5 ^ swap1;
+                let e6 = d6 ^ swap2;
+                let e7 = d7 ^ swap3;
+                let e8 = d8 ^ swap4;
+
+                // 1x1 Swap
+                let swap1 = (e1.shift_right::<1>() ^ e3) & mask1x1;
+                let swap2 = (e2.shift_right::<1>() ^ e4) & mask1x1;
+                let swap3 = (e5.shift_right::<1>() ^ e7) & mask1x1;
+                let swap4 = (e6.shift_right::<1>() ^ e8) & mask1x1;
+                let f1 = e1 ^ swap1.shift_left::<1>();
+                let f2 = e2 ^ swap2.shift_left::<1>();
+                let f3 = e3 ^ swap1;
+                let f4 = e4 ^ swap2;
+                let f5 = e5 ^ swap3.shift_left::<1>();
+                let f6 = e6 ^ swap4.shift_left::<1>();
+                let f7 = e7 ^ swap3;
+                let f8 = e8 ^ swap4;
+
+                let g1 = f1.interleave_lower_32(f3);
+                let g2 = f2.interleave_lower_32(f4);
+                let g3 = f1.interleave_upper_32(f3);
+                let g4 = f2.interleave_upper_32(f4);
+                let g5 = f5.interleave_lower_32(f7);
+                let g6 = f6.interleave_lower_32(f8);
+                let g7 = f5.interleave_upper_32(f7);
+                let g8 = f6.interleave_upper_32(f8);
+
+                let h1 = g1.interleave_lower_64(g5);
+                let h2 = g2.interleave_lower_64(g6);
+                let h3 = g1.interleave_upper_64(g5);
+                let h4 = g2.interleave_upper_64(g6);
+                let h5 = g3.interleave_lower_64(g7);
+                let h6 = g4.interleave_lower_64(g8);
+                let h7 = g3.interleave_upper_64(g7);
+                let h8 = g4.interleave_upper_64(g8);
+
+                h1.copy_to_slice(&mut slice[0..4]);
+                h2.copy_to_slice(&mut slice[4..8]);
+                h3.copy_to_slice(&mut slice[8..12]);
+                h4.copy_to_slice(&mut slice[12..16]);
+                h5.copy_to_slice(&mut slice[16..20]);
+                h6.copy_to_slice(&mut slice[20..24]);
+                h7.copy_to_slice(&mut slice[24..28]);
+                h8.copy_to_slice(&mut slice[28..32]);
+            }
+        }
+        // avx2
+        32 => {
+            let a1 = Simd::<u32, A>::from_slice(&slice[..8]);
+            let a2 = Simd::<u32, A>::from_slice(&slice[8..16]);
+            let a3 = Simd::<u32, A>::from_slice(&slice[16..24]);
+            let a4 = Simd::<u32, A>::from_slice(&slice[24..32]);
+
+            let b1 = a1.interleave_lower_block_8(a2);
+            let b2 = a1.interleave_upper_block_8(a2);
+            let b3 = a3.interleave_lower_block_8(a4);
+            let b4 = a3.interleave_upper_block_8(a4);
+            let c1 = b1.interleave_lower_block_16(b3);
+            let c2 = b1.interleave_upper_block_16(b3);
+            let c3 = b2.interleave_lower_block_16(b4);
+            let c4 = b2.interleave_upper_block_16(b4);
+
+            // 2x2 Swap
+            let mask2x2 = Simd::splat(0x3333_3333);
+            let swap1 = (c1.shift_right::<2>() ^ c3) & mask2x2;
+            let swap2 = (c2.shift_right::<2>() ^ c4) & mask2x2;
+            let d1 = c1 ^ swap1.shift_left::<2>();
+            let d2 = c2 ^ swap2.shift_left::<2>();
+            let d3 = c3 ^ swap1;
+            let d4 = c4 ^ swap2;
+
+            // 1x1 Swap
+            let mask1x1 = Simd::splat(0x5555_5555);
+            let swap1 = (d1.shift_right::<1>() ^ d2) & mask1x1;
+            let swap2 = (d3.shift_right::<1>() ^ d4) & mask1x1;
+            let e1 = d1 ^ swap1.shift_left::<1>();
+            let e2 = d2 ^ swap1;
+            let e3 = d3 ^ swap2.shift_left::<1>();
+            let e4 = d4 ^ swap2;
+
+            // 4x4 Swap
+            let f1 = e1.interleave_even_128(e2);
+            let f2 = e3.interleave_even_128(e4);
+            let f3 = e1.interleave_odd_128(e2);
+            let f4 = e3.interleave_odd_128(e4);
+            let mask4x4 = Simd::splat(0x0F0F_0F0F);
+            let swap1 = (f1.shift_right::<4>() ^ f3) & mask4x4;
+            let swap2 = (f2.shift_right::<4>() ^ f4) & mask4x4;
+            let g1 = f1 ^ swap1.shift_left::<4>();
+            let g2 = f2 ^ swap2.shift_left::<4>();
+            let g3 = f3 ^ swap1;
+            let g4 = f4 ^ swap2;
+            let h1 = g1.interleave_even_128(g3);
+            let h2 = g1.interleave_odd_128(g3);
+            let h3 = g2.interleave_even_128(g4);
+            let h4 = g2.interleave_odd_128(g4);
+
+            // Unpack
+            let i1 = h1.interleave_lower_block_32(h2);
+            let i2 = h3.interleave_lower_block_32(h4);
+            let i3 = h1.interleave_upper_block_32(h2);
+            let i4 = h3.interleave_upper_block_32(h4);
+            let j1 = i1.interleave_lower_block_64(i2);
+            let j2 = i1.interleave_upper_block_64(i2);
+            let j3 = i3.interleave_lower_block_64(i4);
+            let j4 = i3.interleave_upper_block_64(i4);
+
+            j1.copy_to_slice(&mut slice[..8]);
+            j2.copy_to_slice(&mut slice[8..16]);
+            j3.copy_to_slice(&mut slice[16..24]);
+            j4.copy_to_slice(&mut slice[24..32]);
+        }
+        // avx512f, avx512bw, avx512vl
+        64 => {
+            let a1 = Simd::<u32, A>::from_slice(&slice[..16]);
+            let a2 = Simd::<u32, A>::from_slice(&slice[16..32]);
+
+            let b1 = a1.interleave_lower_block_8(a2);
+            let b2 = a1.interleave_upper_block_8(a2);
+
+            // 2x2 Swap
+            let mask2x2 = Simd::splat(0x3333_3333);
+            let c1 = (b1 & mask2x2) | b2.shift_left::<2>().andnot(mask2x2);
+            let c2 = (b2.andnot(mask2x2)) | b1.shift_right::<2>() & mask2x2;
+
+            let d1 = c1.interleave_lower_block_16(c2);
+            let d2 = c1.interleave_upper_block_16(c2);
+
+            // 1x1 Swap
+            let mask1x1 = Simd::splat(0x5555_5555);
+            let e1 = (d1 & mask1x1) | d2.shift_left::<1>().andnot(mask1x1);
+            let e2 = (d2.andnot(mask1x1)) | d1.shift_right::<1>() & mask1x1;
+
+            let f1 = e1.interleave_lower_block_16(e2);
+            let f2 = e1.interleave_upper_block_16(e2);
+            let g1 = f1.concat_lo_lo(f2);
+            let g2 = f1.concat_hi_hi(f2);
+            let h1 = g1.interleave_lower_block_8(g2);
+            let h2 = g1.interleave_upper_block_8(g2);
+            let i1 = h1.deinterleave_even_128(h2);
+            let i2 = h1.deinterleave_odd_128(h2);
+
+            // 4x4 Swap
+            let mask4x4 = Simd::splat(0x0F0F_0F0F);
+            let j1 = (i1 & mask4x4) | i2.shift_left::<4>().andnot(mask4x4);
+            let j2 = (i2.andnot(mask4x4)) | i1.shift_right::<4>() & mask4x4;
+
+            let k1 = j1.interleave_even_128(j2);
+            let k2 = j1.interleave_odd_128(j2);
+
+            k1.copy_to_slice(&mut slice[0..16]);
+            k2.copy_to_slice(&mut slice[16..32]);
+        }
+        _ => unreachable!(),
+    }
 }
 
 pub fn inner_transpose_slice_scalar(slice: &mut [u32]) {

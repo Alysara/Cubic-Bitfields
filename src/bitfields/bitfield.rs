@@ -3,6 +3,8 @@ use std::mem::transmute;
 use std::ops::*;
 use std::simd::prelude::*;
 
+use simply_simd::StaticArch;
+
 use crate::loader::*;
 use crate::logger::*;
 use crate::transposes::*;
@@ -684,6 +686,14 @@ impl Bitfield {
     pub fn inner_transpose(&mut self) -> &mut Self {
         for i in (0..1024).step_by(32) {
             inner_transpose_slice(&mut self.data[i..]);
+        }
+        self
+    }
+
+    /// Transposes each chunk of 32 elements as a 32x32 bit matrix.
+    pub fn inner_transpose_simply_simd(&mut self) -> &mut Self {
+        for i in (0..1024).step_by(32) {
+            inner_transpose_slice_simply_simd::<StaticArch>(&mut self.data[i..]);
         }
         self
     }

@@ -4,11 +4,12 @@ members = ["."]
 
 [package]
 name = "cubic-bitfields"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 criterion = "0.8.2"
+simply-simd = { version = "0.3.0", git = "https://github.com/Alysara/simply-simd.git" }
 
 [[bench]]
 name = "transposes"
