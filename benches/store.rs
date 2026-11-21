@@ -20,37 +20,60 @@ fn store_data_bench(c: &mut Criterion) {
 
     let rand = gen_rand_packed::<512>(0);
     let mut bitfield = Bitfield::new(0);
+    let mut bitfield32: Bitfield32 = Bitfield32::new(0);
     bitfield.load_packed_u1_into::<SET_ASSIGN, CMP_EQ>(&rand, true);
+    bitfield32.load_packed_u1_into::<SET_ASSIGN, CMP_EQ>(&rand, true);
 
     group.throughput(Throughput::Elements(32768));
     group.bench_function("u1_store", |b| {
         b.iter(|| {
             bitfield.store_into_packed_u1(&mut array_u1, false);
-            black_box(&bitfield);
+        });
+    });
+
+    group.bench_function("u1_store_new", |b| {
+        b.iter(|| {
+            bitfield32.store_into_packed_u1(&mut array_u1, false);
         });
     });
     group.bench_function("u2_store", |b| {
         b.iter(|| {
             bitfield.store_into_packed_u2(&mut array_u2, 3);
-            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u2_store_new", |b| {
+        b.iter(|| {
+            bitfield32.store_into_packed_u2(&mut array_u2, 3);
         });
     });
     group.bench_function("u4_store", |b| {
         b.iter(|| {
             bitfield.store_into_packed_u4(&mut array_u4, 15);
-            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u4_store_new", |b| {
+        b.iter(|| {
+            bitfield32.store_into_packed_u4(&mut array_u4, 15);
         });
     });
     group.bench_function("u8_store", |b| {
         b.iter(|| {
             bitfield.store_into_packed_u8(&mut array_u8, 100);
-            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u8_store_new", |b| {
+        b.iter(|| {
+            bitfield32.store_into_packed_u8(&mut array_u8, 100);
         });
     });
     group.bench_function("u16_store", |b| {
         b.iter(|| {
             bitfield.store_into_packed_u16(&mut array_u16, 100);
-            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u16_store_new", |b| {
+        b.iter(|| {
+            bitfield32.store_into_packed_u16(&mut array_u16, 100);
         });
     });
 }

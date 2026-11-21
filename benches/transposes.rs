@@ -7,7 +7,9 @@ use cubic_bitfields::*;
 fn transpose_bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("bitfield");
     let mut bitfield = Bitfield::new(12);
+    let mut bitfield32: Bitfield32 = Bitfield32::new(12);
     black_box(bitfield);
+    black_box(bitfield32);
 
     group.throughput(Throughput::Elements(1024));
     group.bench_function("inner_transpose", |b| {
@@ -26,6 +28,12 @@ fn transpose_bench(c: &mut Criterion) {
         b.iter(|| {
             bitfield.outer_transpose();
             black_box(bitfield);
+        });
+    });
+    group.bench_function("outer_transpose_simply_simd", |b| {
+        b.iter(|| {
+            bitfield32.outer_transpose();
+            black_box(bitfield32);
         });
     });
     group.bench_function("outer_transpose_scalar", |b| {

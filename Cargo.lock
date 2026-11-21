@@ -516,7 +516,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "simply-simd"
 version = "0.3.0"
-source = "git+https://github.com/Alysara/simply-simd.git#2dcb2305fe602193ba75f05a45aae3a53f4e48c8"
+source = "git+https://github.com/Alysara/simply-simd.git#3f94a55a31b7f69dbc44d658855d2e0120bbceb0"
 dependencies = [
  "itertools 0.14.0",
  "num-traits",
@@ -526,7 +526,7 @@ dependencies = [
 [[package]]
 name = "simply-simd-macros"
 version = "0.1.1"
-source = "git+https://github.com/Alysara/simply-simd.git#2dcb2305fe602193ba75f05a45aae3a53f4e48c8"
+source = "git+https://github.com/Alysara/simply-simd.git#3f94a55a31b7f69dbc44d658855d2e0120bbceb0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",

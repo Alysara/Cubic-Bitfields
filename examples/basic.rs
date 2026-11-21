@@ -10,9 +10,28 @@ fn main() {
     let array2 = gen_sparse::<2048>(1, NUM_BATCHES, 6, 60);
 
     let mut untracked1 = Bitfield::new(0);
-    let mut untracked2 = Bitfield::new(0);
+    let mut untracked2: Bitfield32 = Bitfield32::new(0);
     let mut tracked1 = TrackedBitfield::new(0);
     let mut tracked2 = TrackedBitfield::new(0);
+
+    let mut array = [0u64; 1024];
+    let mut array2048 = [0u64; 2048];
+    let mut array4096 = [0u64; 4096];
+    black_box(&array);
+
+    let mut out1 = [0u64; 4096];
+    let mut out2 = [0u64; 4096];
+
+    untracked1.store_into_packed_u2(&mut array, 1);
+    untracked2.store_into_packed_u4(&mut array2048, 1);
+    untracked2.store_into_packed_u8(&mut array4096, 1);
+
+    untracked1.load_packed_u4_into::<SET_ASSIGN, CMP_EQ>(&array1, 1);
+    untracked2.load_packed_u4_into::<SET_ASSIGN, CMP_EQ>(&array1, 1);
+    black_box(&array);
+
+    untracked1.store_into_packed_u8(&mut out1, 1);
+    untracked2.store_into_packed_u8(&mut out2, 1);
 
     // untracked1.load_packed_u4_into::<SET_OR, CMP_NE>(&array1, 0);
     // untracked2.load_packed_u4_into::<SET_OR, CMP_NE>(&array1, 0);
@@ -27,16 +46,29 @@ fn main() {
     }
 
     println!(" -=-=- Start -=-=- ");
-    untracked1.print_inner_slices(0..1);
+    untracked1.print_outer_slices(0..1);
 
-    untracked1.inner_transpose();
-    untracked2.inner_transpose_simply_simd();
+    untracked1.outer_transpose();
+    untracked2.outer_transpose();
 
     println!(" -=-=- Solution -=-=- ");
-    untracked1.print_inner_slices(0..1);
+    untracked1.print_outer_slices(0..1);
 
     println!(" -=-=- Simply Simd -=-=- ");
-    untracked2.print_inner_slices(0..1);
+    untracked2.print_outer_slices(0..1);
+
+
+    // println!(" -=-=- Start -=-=- ");
+    // untracked1.print_inner_slices(0..1);
+    //
+    // untracked1.inner_transpose();
+    // untracked2.inner_transpose();
+    //
+    // println!(" -=-=- Solution -=-=- ");
+    // untracked1.print_inner_slices(0..1);
+    //
+    // println!(" -=-=- Simply Simd -=-=- ");
+    // untracked2.print_inner_slices(0..1);
 
     // // untracked1 |= untracked2;
     //

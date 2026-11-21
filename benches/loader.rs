@@ -19,10 +19,17 @@ fn load_data_bench(c: &mut Criterion) {
     black_box(array_u16);
 
     let mut bitfield = Bitfield::new(0);
+    let mut bitfield_new: Bitfield32 = Bitfield32::new(0);
     group.throughput(Throughput::Elements(32768));
     group.bench_function("u1_load", |b| {
         b.iter(|| {
             bitfield.load_packed_u1_into::<SET_ASSIGN, CMP_EQ>(&array_u1, false);
+            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u1_load_new", |b| {
+        b.iter(|| {
+            bitfield_new.load_packed_u1_into::<SET_ASSIGN, CMP_EQ>(&array_u1, false);
             black_box(&bitfield);
         });
     });
@@ -32,9 +39,21 @@ fn load_data_bench(c: &mut Criterion) {
             black_box(&bitfield);
         });
     });
+    group.bench_function("u2_load_new", |b| {
+        b.iter(|| {
+            bitfield_new.load_packed_u2_into::<SET_ASSIGN, CMP_EQ>(&array_u2, 0);
+            black_box(&bitfield);
+        });
+    });
     group.bench_function("u4_load", |b| {
         b.iter(|| {
             bitfield.load_packed_u4_into::<SET_ASSIGN, CMP_EQ>(&array_u4, 0);
+            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u4_load_new", |b| {
+        b.iter(|| {
+            bitfield_new.load_packed_u4_into::<SET_ASSIGN, CMP_EQ>(&array_u4, 0);
             black_box(&bitfield);
         });
     });
@@ -44,9 +63,21 @@ fn load_data_bench(c: &mut Criterion) {
             black_box(&bitfield);
         });
     });
+    group.bench_function("u8_load_new", |b| {
+        b.iter(|| {
+            bitfield_new.load_packed_u8_into::<SET_ASSIGN, CMP_EQ>(&array_u8, 0);
+            black_box(&bitfield);
+        });
+    });
     group.bench_function("u16_load", |b| {
         b.iter(|| {
             bitfield.load_packed_u16_into::<SET_ASSIGN, CMP_EQ>(&array_u16, 0);
+            black_box(&bitfield);
+        });
+    });
+    group.bench_function("u16_load_new", |b| {
+        b.iter(|| {
+            bitfield_new.load_packed_u16_into::<SET_ASSIGN, CMP_EQ>(&array_u16, 0);
             black_box(&bitfield);
         });
     });

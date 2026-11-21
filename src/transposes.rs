@@ -1,4 +1,5 @@
 use std::arch::is_aarch64_feature_detected;
+use std::array::from_fn;
 use std::simd::{simd_swizzle, u32x4, u32x16};
 
 use simply_simd::{Arch, Simd};
@@ -29,6 +30,111 @@ pub fn outer_transpose(matrix: &mut [u32; 1024]) {
         }
     }
 }
+
+/// Transposes all 1024 elements as a 32x32 matrix.
+#[inline(always)]
+pub fn outer_transpose_simply_simd<A: Arch>(matrix: &mut [u32; 1024]) {
+    match A::SIMD_WIDTH {
+        16 => outer_transpose_inner::<4, A>(matrix),
+        32 => outer_transpose_inner::<8, A>(matrix),
+        64 => outer_transpose_inner::<16, A>(matrix),
+        _ => unreachable!(),
+    }
+}
+
+#[inline(always)]
+fn outer_transpose_inner<const N: usize, A: Arch>(matrix: &mut [u32; 1024]) {
+    let vert_gap = N * 32;
+    let horz_gap = N;
+    let swap_steps = 32 / N;
+
+    for y in 0..swap_steps {
+        // Handle middle block case.
+        let i = y * vert_gap + y * horz_gap;
+        let block = load_block::<N, A>(matrix, i);
+        let tblock = transpose_block(block);
+        store_block(matrix, i, tblock);
+
+        for z in (y + 1)..swap_steps {
+            // Perform block swaps.
+            let i = y * vert_gap + z * horz_gap;
+            let j = y * horz_gap + z * vert_gap;
+
+            let i_block = load_block::<N, A>(matrix, i);
+            let j_block = load_block::<N, A>(matrix, j);
+
+            let i_tblock = transpose_block(i_block);
+            let j_tblock = transpose_block(j_block);
+
+            store_block(matrix, i, j_tblock);
+            store_block(matrix, j, i_tblock);
+        }
+    }
+}
+
+#[inline(always)]
+fn load_block<const N: usize, A: Arch>(matrix: &[u32; 1024], start: usize) -> [Simd<u32, A>; N] {
+    from_fn(|i| Simd::from_slice(&matrix[start + i * 32..start + i * 32 + 8]))
+}
+
+#[inline(always)]
+fn store_block<const N: usize, A: Arch>(m: &mut [u32; 1024], i: usize, block: [Simd<u32, A>; N]) {
+    for (cur, reg) in block.iter().enumerate() {
+        let idx = i + cur * 32;
+        let slice = unsafe { m.get_unchecked_mut(idx..idx + 8) };
+        reg.copy_to_slice(slice);
+    }
+}
+
+#[inline(always)]
+fn transpose_block<const N: usize, A: Arch>(mut matrix: [Simd<u32, A>; N]) -> [Simd<u32, A>; N] {
+    // 8x8 Transpose.
+    if N == 16 {
+        let mut next: [Simd<u32, A>; N] = [Simd::zero(); N];
+        for i in 0..8 {
+            next[i] = matrix[i].concat_lo_lo(matrix[i + 8]);
+            next[i + 8] = matrix[i].concat_hi_hi(matrix[i + 8]);
+        }
+        matrix = next;
+    }
+
+    // 4x4 Transpose.
+    if N >= 8 {
+        let mut next: [Simd<u32, A>; N] = [Simd::zero(); N];
+        for i in (0..N).step_by(8) {
+            for j in 0..4 {
+                next[i + j] = matrix[i + j].interleave_even_128(matrix[i + j + 4]);
+                next[i + j + 4] = matrix[i + j].interleave_odd_128(matrix[i + j + 4]);
+            }
+        }
+        matrix = next;
+    }
+
+    // 2x2.
+    if N >= 4 {
+        let mut next: [Simd<u32, A>; N] = [Simd::zero(); N];
+        for i in (0..N).step_by(4) {
+            for j in 0..2 {
+                next[i + j] = matrix[i + j].interleave_even_64(matrix[i + j + 2]);
+                next[i + j + 2] = matrix[i + j].interleave_odd_64(matrix[i + j + 2]);
+            }
+        }
+        matrix = next;
+    }
+
+    // 1x1.
+    if N >= 2 {
+        let mut next: [Simd<u32, A>; N] = [Simd::zero(); N];
+        for i in (0..N).step_by(2) {
+            next[i] = matrix[i].interleave_even_32(matrix[i + 1]);
+            next[i + 1] = matrix[i].interleave_odd_32(matrix[i + 1]);
+        }
+        matrix = next;
+    }
+
+    matrix
+}
+
 
 #[inline(always)]
 fn load_4x4_block(matrix: &[u32; 1024], index: usize) -> (u32x4, u32x4, u32x4, u32x4) {
